@@ -73,13 +73,63 @@ def export_entries(
     )
 
 
+@router.get("/{module}/locate", response_model=dict)
+def locate_series(
+    module: str,
+    point: str | None = Query(default=None),
+    unit: str | None = Query(default=None),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    rule: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """按测点、实际单位、采集区间与换算规则定位时序产物。
+
+    只有实现了 ``locate_series`` 的模块（当前是采集血缘）支持此接口。
+    """
+    service = require_service(module)
+    locate = getattr(service, "locate_series", None)
+    if not callable(locate):
+        raise HTTPException(status_code=404, detail=f"{module} 不支持按换算出处定位")
+    return locate(point=point, unit=unit, start=start, end=end, rule=rule)
+
+
 @router.get("/{module}/{entry_id}", response_model=dict)
 def get_entry(module: str, entry_id: int) -> dict[str, Any]:
     service = require_service(module)
     entry = service.get_entry(entry_id)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"{service.ENTITY} {entry_id} 不存在或已归档")
+    # 复验单详情带提交记录；其他模块按通用条目返回。
+    detail = getattr(service, "detail", None)
+    if callable(detail):
+        payload = detail(entry_id)
+        if payload is not None:
+            return payload
     return entry
+
+
+@router.get("/{module}/{entry_id}/runs", response_model=dict)
+def list_runs(module: str, entry_id: int) -> dict[str, Any]:
+    """复验单每次提交的运行快照：历史血缘按原引用核对时直接读这里。"""
+    service = require_service(module)
+    runs = getattr(service, "runs", None)
+    if not callable(runs):
+        raise HTTPException(status_code=404, detail=f"{module} 不支持提交记录查询")
+    if service.get_entry(entry_id) is None:
+        raise HTTPException(status_code=404, detail=f"{service.ENTITY} {entry_id} 不存在")
+    return {"items": runs(entry_id)}
+
+
+@router.get("/{module}/{entry_id}/runs/{run_no}", response_model=dict)
+def get_run(module: str, entry_id: int, run_no: int) -> dict[str, Any]:
+    service = require_service(module)
+    detail = getattr(service, "run_detail", None)
+    if not callable(detail):
+        raise HTTPException(status_code=404, detail=f"{module} 不支持提交记录查询")
+    run = detail(entry_id, run_no)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"提交记录 RUN-{run_no} 不存在")
+    return run
 
 
 @router.post("/{module}", response_model=ActionResult)
@@ -94,5 +144,5 @@ def create_entry(module: str, payload: EntryPayload) -> ActionResult:
 @router.post("/{module}/{entry_id}/actions", response_model=ActionResult)
 def run_action(module: str, entry_id: int, payload: ActionPayload) -> ActionResult:
     service = require_service(module)
-    entry, message = service.run_action(entry_id, payload.action.strip())
+    entry, message = service.run_action(entry_id, payload.action.strip(), payload.values)
     return ActionResult(ok=entry is not None, message=message, entry=entry)

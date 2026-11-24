@@ -29,11 +29,91 @@ export async function runAction(
   key: string,
   id: number,
   action: string,
+  values: Record<string, string> = {},
 ): Promise<ActionResult> {
   const response = await request(`/api/${key}/${id}/actions`, {
     method: 'POST',
-    body: JSON.stringify({ action }),
+    body: JSON.stringify({ action, values }),
   })
+  return await response.json()
+}
+
+export type LocateResult = {
+  query: Record<string, string>
+  total: number
+  items: {
+    index_id: string
+    point: string
+    unit: string
+    reference: string
+    calibrate_id: string
+    version: string
+    source: string
+    artifact: string
+    matched_count: number
+    sample_count: number
+    samples: { timestamp: string; value: number; unit: string; reference: string }[]
+  }[]
+}
+
+export async function locateSeries(
+  key: string,
+  query: Record<string, string>,
+): Promise<LocateResult> {
+  const params = new URLSearchParams()
+  Object.entries(query).forEach(([name, value]) => {
+    if (value) params.set(name, value)
+  })
+  // 后端参数名用 point/unit/start/end/rule，页面上仍展示中文字段。
+  const response = await request(`/api/${key}/locate?${params.toString()}`)
+  if (!response.ok) throw new Error('按换算出处定位失败')
+  return await response.json()
+}
+
+export type ReverifyRun = {
+  run: number
+  action: string
+  scope: { start: string; end: string }
+  requested_reference: string
+  actual_references: string[]
+  unit: string
+  units_seen: string[]
+  sample_count: number
+  conclusion: string
+  digest: string
+  recorded_at: string
+  samples: {
+    timestamp: string
+    value: number
+    unit: string
+    raw_value: number
+    source_unit: string
+    scale: number
+    offset: number
+    reference: string
+    source: string
+  }[]
+  overlaps: {
+    timestamp: string
+    chosen: string
+    chosen_value: number
+    unit: string
+    candidates: { reference: string; value: number; unit: string; source: string }[]
+  }[]
+}
+
+export type ReverifyDetail = EntryRow & {
+  window?: { start: string; end: string }
+  unit_name?: string
+  reviewed?: { start: string; end: string }[]
+  pending_ranges?: { start: string; end: string }[]
+  提交记录?: ReverifyRun[]
+  提交记录数?: number
+}
+
+export async function loadReverifyDetail(id: number): Promise<ReverifyDetail> {
+  const response = await request(`/api/reverify_session/${id}`)
+  if (!response.ok) throw new Error('复验单详情读取失败')
   return await response.json()
 }
 

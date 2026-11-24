@@ -29,3 +29,5 @@ class EntryPayload(BaseModel):
 class ActionPayload(BaseModel):
     action: str
     remark: str | None = None
+    # 复验类动作需要携带区间、提交记录、样本时刻等参数；普通状态流转可留空。
+    values: dict[str, Any] = Field(default_factory=dict)

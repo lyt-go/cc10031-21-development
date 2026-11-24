@@ -37,6 +37,13 @@
       <button class="btn ghost" data-testid="reset" type="button" @click="resetFilters">重置条件</button>
     </form>
 
+    <div v-if="meta.key === 'reverify_session'" class="domain-slot">
+      <ReverifyConsole :rows="rows" :refresh="reload" />
+    </div>
+    <div v-if="meta.key === 'series_lineage'" class="domain-slot">
+      <LocateSeriesPanel :lineage-id="selectedLineageId" @created="onReverifyCreated" />
+    </div>
+
     <table class="data-table">
       <thead>
         <tr>
@@ -46,7 +53,14 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="String(row.id)" :data-testid="`row-${row.id}`" :data-status="String(row.status)">
+        <tr
+          v-for="row in rows"
+          :key="String(row.id)"
+          :data-testid="`row-${row.id}`"
+          :data-status="String(row.status)"
+          :class="{ 'row-selectable': meta.key === 'series_lineage' }"
+          @click="meta.key === 'series_lineage' && (selectedLineageId = Number(row.id))"
+        >
           <td v-for="column in meta.fields" :key="column">{{ row[column] ?? '—' }}</td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
@@ -104,6 +118,8 @@ import {
   runAction as applyAction,
 } from '@/api/backend-service'
 import type { EntryRow } from '@/data/types'
+import LocateSeriesPanel from '@/components/LocateSeriesPanel.vue'
+import ReverifyConsole from '@/components/ReverifyConsole.vue'
 
 const props = defineProps<{ moduleKey: string }>()
 const meta = moduleMeta(props.moduleKey)
@@ -115,6 +131,7 @@ const filterFields = meta.fields.slice(0, 3)
 const showCreate = ref(false)
 const creating = ref(false)
 const createValues = ref<Record<string, string>>({})
+const selectedLineageId = ref(0)
 const stats = computed(() => [
   { label: meta.metrics[0], value: total.value },
   { label: meta.metrics[1], value: rows.value.filter((row) => row.status === meta.statuses[1]).length },
@@ -182,8 +199,21 @@ async function reload() {
     const payload = await listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    if (meta.key === 'series_lineage' && !selectedLineageId.value && rows.value.length) {
+      selectedLineageId.value = Number(rows.value[0].id)
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '业务列表读取失败'
+  }
+}
+
+async function onReverifyCreated(message: string) {
+  errorMessage.value = ''
+  try {
+    await reload()
+    if (message) errorMessage.value = message
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '发起复验失败'
   }
 }
 
